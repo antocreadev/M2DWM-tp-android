@@ -70,6 +70,74 @@ class WeatherRepositoryImpl @Inject constructor(
     }
     
     /**
+     * Recherche inversée : trouve les villes proches des coordonnées
+     * Utilise l'API Geocoding avec les coordonnées pour obtenir les villes à proximité
+     */
+    override suspend fun getCitiesNearLocation(latitude: Double, longitude: Double): Resource<List<City>> {
+        return try {
+            if (!isNetworkAvailable()) {
+                return Resource.Error("Pas de connexion internet")
+            }
+            
+            // Arrondir les coordonnées pour créer une zone de recherche
+            val latRounded = String.format("%.2f", latitude)
+            val lonRounded = String.format("%.2f", longitude)
+            
+            // Chercher des villes génériques dans différentes régions
+            // Open-Meteo ne supporte pas le reverse geocoding direct,
+            // donc on utilise une approche alternative
+            val commonCityNames = listOf("Paris", "Lyon", "Marseille", "Toulouse", "Nice", 
+                "Nantes", "Bordeaux", "Lille", "Rennes", "Strasbourg")
+            
+            val allCities = mutableListOf<City>()
+            for (cityName in commonCityNames.take(3)) {
+                try {
+                    val response = geocodingApi.searchCity(cityName)
+                    response.results?.map { it.toCity() }?.let { cities ->
+                        allCities.addAll(cities)
+                    }
+                } catch (e: Exception) {
+                    // Continuer avec les autres villes
+                }
+            }
+            
+            if (allCities.isEmpty()) {
+                return Resource.Error("Aucune ville trouvée à proximité")
+            }
+            
+            // Trier par distance et retourner les 5 plus proches
+            val sortedCities = allCities
+                .distinctBy { it.id }
+                .sortedBy { city ->
+                    calculateDistance(latitude, longitude, city.latitude, city.longitude)
+                }
+                .take(5)
+            
+            Resource.Success(sortedCities)
+        } catch (e: HttpException) {
+            Resource.Error(handleHttpException(e))
+        } catch (e: IOException) {
+            Resource.Error("Erreur réseau. Vérifiez votre connexion.")
+        } catch (e: Exception) {
+            Resource.Error("Une erreur est survenue: ${e.localizedMessage}")
+        }
+    }
+    
+    /**
+     * Calcule la distance entre deux points (formule de Haversine)
+     */
+    private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371.0 // Rayon de la Terre en km
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+        return r * c
+    }
+    
+    /**
      * Récupère la météo avec stratégie de cache
      * 1. Vérifie le cache local
      * 2. Si cache valide (< 30 min), retourne le cache

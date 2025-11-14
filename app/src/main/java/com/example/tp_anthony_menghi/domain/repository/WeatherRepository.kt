@@ -18,6 +18,11 @@ interface WeatherRepository {
     suspend fun searchCities(query: String): Resource<List<City>>
     
     /**
+     * Recherche inversée : trouve les villes proches de coordonnées données
+     */
+    suspend fun getCitiesNearLocation(latitude: Double, longitude: Double): Resource<List<City>>
+    
+    /**
      * Récupère les données météo pour une ville
      * Gère le cache et le mode hors ligne
      */

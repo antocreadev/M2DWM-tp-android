@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tp_anthony_menghi.domain.model.City
 import com.example.tp_anthony_menghi.domain.repository.WeatherRepository
+import com.example.tp_anthony_menghi.utils.LocationHelper
 import com.example.tp_anthony_menghi.utils.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
@@ -13,12 +14,13 @@ import javax.inject.Inject
 
 /**
  * ViewModel pour l'écran de recherche
- * Gère la recherche de villes avec debounce
+ * Gère la recherche de villes avec debounce et la géolocalisation
  */
 @OptIn(FlowPreview::class)
 @HiltViewModel
 class SearchViewModel @Inject constructor(
-    private val repository: WeatherRepository
+    private val repository: WeatherRepository,
+    private val locationHelper: LocationHelper
 ) : ViewModel() {
     
     private val _searchQuery = MutableStateFlow("")
@@ -26,6 +28,9 @@ class SearchViewModel @Inject constructor(
     
     private val _searchState = MutableStateFlow<SearchState>(SearchState.Idle)
     val searchState: StateFlow<SearchState> = _searchState.asStateFlow()
+    
+    private val _locationState = MutableStateFlow<LocationState>(LocationState.Idle)
+    val locationState: StateFlow<LocationState> = _locationState.asStateFlow()
     
     init {
         // Debounce sur la recherche (300ms)
@@ -86,6 +91,57 @@ class SearchViewModel @Inject constructor(
     suspend fun isFavorite(cityId: Int): Boolean {
         return repository.isFavorite(cityId)
     }
+    
+    /**
+     * Vérifie si les permissions de localisation sont accordées
+     */
+    fun hasLocationPermission(): Boolean {
+        return locationHelper.hasLocationPermission()
+    }
+    
+    /**
+     * Géolocalise l'utilisateur et trouve les villes à proximité
+     */
+    fun findNearbyCities() {
+        viewModelScope.launch {
+            _locationState.value = LocationState.Loading
+            
+            // Récupérer la position actuelle
+            locationHelper.getCurrentLocation()
+                .onSuccess { location ->
+                    // Rechercher les villes proches
+                    when (val result = repository.getCitiesNearLocation(
+                        location.latitude,
+                        location.longitude
+                    )) {
+                        is Resource.Success -> {
+                            val cities = result.data ?: emptyList()
+                            _locationState.value = LocationState.Success(cities)
+                        }
+                        is Resource.Error -> {
+                            _locationState.value = LocationState.Error(
+                                result.message ?: "Erreur lors de la recherche"
+                            )
+                        }
+                        is Resource.Loading -> {
+                            _locationState.value = LocationState.Loading
+                        }
+                    }
+                }
+                .onFailure { exception ->
+                    _locationState.value = LocationState.Error(
+                        exception.message ?: "Impossible d'obtenir votre position"
+                    )
+                }
+        }
+    }
+    
+    /**
+     * Réinitialise l'état de localisation
+     */
+    fun resetLocationState() {
+        _locationState.value = LocationState.Idle
+    }
 }
 
 /**
@@ -96,4 +152,14 @@ sealed class SearchState {
     object Loading : SearchState()
     data class Success(val cities: List<City>) : SearchState()
     data class Error(val message: String) : SearchState()
+}
+
+/**
+ * États de la géolocalisation
+ */
+sealed class LocationState {
+    object Idle : LocationState()
+    object Loading : LocationState()
+    data class Success(val cities: List<City>) : LocationState()
+    data class Error(val message: String) : LocationState()
 }
