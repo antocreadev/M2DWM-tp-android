@@ -17,4 +17,16 @@ interface GeocodingApi {
         @Query("language") language: String = "fr",
         @Query("format") format: String = "json"
     ): GeocodingResponse
+    
+    /**
+     * Recherche large pour trouver des villes à proximité
+     * Utilise un terme de recherche minimal (3 caractères requis par l'API)
+     */
+    @GET("v1/search")
+    suspend fun searchNearby(
+        @Query("name") searchTerm: String,
+        @Query("count") count: Int = 100,
+        @Query("language") language: String = "fr",
+        @Query("format") format: String = "json"
+    ): GeocodingResponse
 }

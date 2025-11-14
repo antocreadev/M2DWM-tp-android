@@ -71,7 +71,8 @@ class WeatherRepositoryImpl @Inject constructor(
     
     /**
      * Recherche inversée : trouve les villes proches des coordonnées
-     * Utilise l'API Geocoding avec les coordonnées pour obtenir les villes à proximité
+     * Fait plusieurs recherches avec des termes courts (min 3 caractères requis par l'API)
+     * pour obtenir un large échantillon puis filtre par distance réelle
      */
     override suspend fun getCitiesNearLocation(latitude: Double, longitude: Double): Resource<List<City>> {
         return try {
@@ -79,25 +80,19 @@ class WeatherRepositoryImpl @Inject constructor(
                 return Resource.Error("Pas de connexion internet")
             }
             
-            // Arrondir les coordonnées pour créer une zone de recherche
-            val latRounded = String.format("%.2f", latitude)
-            val lonRounded = String.format("%.2f", longitude)
+            // Déterminer la région approximative pour des recherches ciblées
+            val searchTerms = determineSearchTerms(latitude, longitude)
+            val allCities = mutableSetOf<City>() // Utiliser Set pour éviter les doublons
             
-            // Chercher des villes génériques dans différentes régions
-            // Open-Meteo ne supporte pas le reverse geocoding direct,
-            // donc on utilise une approche alternative
-            val commonCityNames = listOf("Paris", "Lyon", "Marseille", "Toulouse", "Nice", 
-                "Nantes", "Bordeaux", "Lille", "Rennes", "Strasbourg")
-            
-            val allCities = mutableListOf<City>()
-            for (cityName in commonCityNames.take(3)) {
+            // Faire plusieurs recherches avec différents termes
+            for (term in searchTerms) {
                 try {
-                    val response = geocodingApi.searchCity(cityName)
+                    val response = geocodingApi.searchNearby(term, count = 100)
                     response.results?.map { it.toCity() }?.let { cities ->
                         allCities.addAll(cities)
                     }
                 } catch (e: Exception) {
-                    // Continuer avec les autres villes
+                    // Continuer même si une recherche échoue
                 }
             }
             
@@ -105,21 +100,79 @@ class WeatherRepositoryImpl @Inject constructor(
                 return Resource.Error("Aucune ville trouvée à proximité")
             }
             
-            // Trier par distance et retourner les 5 plus proches
-            val sortedCities = allCities
-                .distinctBy { it.id }
-                .sortedBy { city ->
-                    calculateDistance(latitude, longitude, city.latitude, city.longitude)
+            // Filtrer et trier par distance
+            val nearbyCities = allCities
+                .map { city ->
+                    val distance = calculateDistance(latitude, longitude, city.latitude, city.longitude)
+                    city to distance
                 }
-                .take(5)
+                .filter { (_, distance) -> distance <= 150.0 } // Rayon de 150km
+                .sortedBy { (_, distance) -> distance }
+                .take(10)
+                .map { (city, _) -> city }
             
-            Resource.Success(sortedCities)
+            if (nearbyCities.isEmpty()) {
+                // Si aucune ville dans le rayon, prendre les 8 plus proches
+                val closestCities = allCities
+                    .sortedBy { city ->
+                        calculateDistance(latitude, longitude, city.latitude, city.longitude)
+                    }
+                    .take(8)
+                
+                Resource.Success(closestCities)
+            } else {
+                Resource.Success(nearbyCities)
+            }
         } catch (e: HttpException) {
             Resource.Error(handleHttpException(e))
         } catch (e: IOException) {
             Resource.Error("Erreur réseau. Vérifiez votre connexion.")
         } catch (e: Exception) {
             Resource.Error("Une erreur est survenue: ${e.localizedMessage}")
+        }
+    }
+    
+    /**
+     * Détermine les termes de recherche en fonction de la position géographique
+     * Pour obtenir des résultats pertinents selon la région
+     */
+    private fun determineSearchTerms(latitude: Double, longitude: Double): List<String> {
+        return when {
+            // Corse (41.3-43.0°N, 8.5-9.6°E)
+            latitude in 41.0..43.5 && longitude in 8.0..10.0 -> {
+                listOf("Ajaccio", "Bastia", "Corte", "Porto", "Calvi", "Bonifacio", 
+                       "Ile", "Sant", "San", "Cal", "Cor", "Bas", "Aja", "Pro")
+            }
+            // Sud-Est (Provence, Côte d'Azur) (43-44°N, 4-8°E)
+            latitude in 42.5..45.0 && longitude in 4.0..8.0 -> {
+                listOf("Nice", "Marseille", "Toulon", "Cannes", "Antibes", "Avignon",
+                       "Nic", "Mar", "Tou", "Can", "Avi", "Aix", "Gra")
+            }
+            // Sud-Ouest (43-45°N, -2-3°E)
+            latitude in 42.5..45.5 && longitude in -2.0..3.0 -> {
+                listOf("Toulouse", "Bordeaux", "Montpellier", "Perpignan", "Pau",
+                       "Tou", "Bor", "Mon", "Per", "Pau", "Nar", "Bez")
+            }
+            // Ouest (Bretagne, Pays de Loire) (47-49°N, -5--1°E)
+            latitude in 46.5..49.0 && longitude in -5.5..-0.5 -> {
+                listOf("Nantes", "Rennes", "Brest", "Angers", "Lorient",
+                       "Nan", "Ren", "Bre", "Ang", "Lor", "Van", "Qui")
+            }
+            // Nord (50-51°N)
+            latitude >= 49.5 -> {
+                listOf("Lille", "Dunkerque", "Calais", "Amiens", "Rouen",
+                       "Lil", "Dun", "Cal", "Ami", "Rou", "Abb")
+            }
+            // Est (48-50°N, 5-8°E)
+            longitude >= 5.0 -> {
+                listOf("Strasbourg", "Metz", "Nancy", "Mulhouse", "Reims",
+                       "Str", "Met", "Nan", "Mul", "Rei", "Col")
+            }
+            // Centre / Île-de-France
+            else -> {
+                listOf("Paris", "Lyon", "Orléans", "Tours", "Dijon",
+                       "Par", "Lyo", "Orl", "Tou", "Dij", "Bou", "Cle")
+            }
         }
     }
     
