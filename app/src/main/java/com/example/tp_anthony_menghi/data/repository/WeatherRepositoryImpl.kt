@@ -20,6 +20,7 @@ import com.example.tp_anthony_menghi.domain.repository.WeatherRepository
 import com.example.tp_anthony_menghi.utils.Resource
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import retrofit2.HttpException
 import java.io.IOException
@@ -260,12 +261,20 @@ class WeatherRepositoryImpl @Inject constructor(
     
     /**
      * Récupère les favoris avec leur météo
+     * Combine les Flows des favoris et du cache pour une mise à jour réactive
      */
     override fun getFavorites(): Flow<List<FavoriteCity>> {
-        return favoriteDao.getAllFavorites().map { favorites ->
+        return combine(
+            favoriteDao.getAllFavorites(),
+            weatherCacheDao.getAllCachedWeather()
+        ) { favorites, weatherCaches ->
+            // Créer une map pour un accès rapide au cache par cityId
+            val weatherMap = weatherCaches.associateBy { it.cityId }
+            
+            // Mapper chaque favori avec sa météo depuis le cache
             favorites.map { favorite ->
                 val city = favorite.toCity()
-                val weather = weatherCacheDao.getWeatherCache(favorite.cityId)?.toWeather()
+                val weather = weatherMap[favorite.cityId]?.toWeather()
                 FavoriteCity(city, weather)
             }
         }
