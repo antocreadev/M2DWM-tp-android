@@ -20,7 +20,7 @@ data class CityDto(
     val name: String,
     val latitude: Double,
     val longitude: Double,
-    val country: String,
+    val country: String? = null,
     val admin1: String? = null
 )
 
@@ -33,7 +33,7 @@ fun CityDto.toCity(): City {
         name = name,
         latitude = latitude,
         longitude = longitude,
-        country = country,
+        country = country ?: "Unknown",
         admin1 = admin1
     )
 }

@@ -26,17 +26,53 @@ class HomeViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     
+    // Set pour tracker les villes dont on est en train de charger la météo
+    private val loadingCities = mutableSetOf<Int>()
+    
     init {
         loadFavorites()
     }
     
     /**
      * Charge la liste des favoris depuis le repository
+     * et charge automatiquement la météo pour les favoris sans données
      */
     private fun loadFavorites() {
         viewModelScope.launch {
             repository.getFavorites().collect { favs ->
                 _favorites.value = favs
+                
+                // Charger la météo pour les favoris qui n'ont pas encore de données
+                favs.forEach { fav ->
+                    if (fav.weather == null && !loadingCities.contains(fav.city.id)) {
+                        loadWeatherForFavorite(fav)
+                    }
+                }
+                
+                // Mettre à jour isLoading
+                _isLoading.value = loadingCities.isNotEmpty()
+            }
+        }
+    }
+    
+    /**
+     * Charge la météo pour un favori spécifique
+     */
+    private fun loadWeatherForFavorite(favorite: FavoriteCity) {
+        viewModelScope.launch {
+            loadingCities.add(favorite.city.id)
+            _isLoading.value = true
+            
+            try {
+                repository.getWeather(
+                    favorite.city.latitude,
+                    favorite.city.longitude,
+                    favorite.city.id,
+                    favorite.city.name
+                )
+            } finally {
+                loadingCities.remove(favorite.city.id)
+                _isLoading.value = loadingCities.isNotEmpty()
             }
         }
     }
@@ -57,14 +93,22 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _isLoading.value = true
             _favorites.value.forEach { fav ->
-                repository.getWeather(
-                    fav.city.latitude,
-                    fav.city.longitude,
-                    fav.city.id,
-                    fav.city.name
-                )
+                loadingCities.add(fav.city.id)
             }
-            _isLoading.value = false
+            
+            try {
+                _favorites.value.forEach { fav ->
+                    repository.getWeather(
+                        fav.city.latitude,
+                        fav.city.longitude,
+                        fav.city.id,
+                        fav.city.name
+                    )
+                }
+            } finally {
+                loadingCities.clear()
+                _isLoading.value = false
+            }
         }
     }
 }

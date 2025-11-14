@@ -37,7 +37,7 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             searchQuery
                 .debounce(300)
-                .filter { it.length >= 2 }
+                .filter { it.length >= 3 } // Min 3 caractères pour fuzzy matching
                 .distinctUntilChanged()
                 .collect { query ->
                     searchCities(query)
@@ -50,7 +50,7 @@ class SearchViewModel @Inject constructor(
      */
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
-        if (query.length < 2) {
+        if (query.length < 3) {
             _searchState.value = SearchState.Idle
         } else {
             _searchState.value = SearchState.Loading

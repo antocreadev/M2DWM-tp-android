@@ -280,7 +280,7 @@ private fun SearchHintView() {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Tapez au moins 2 caractères",
+            text = "Tapez au moins 3 caractères",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
